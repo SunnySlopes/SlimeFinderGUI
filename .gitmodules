@@ -1,0 +1,4 @@
+[submodule "cubiomes"]
+	path = cubiomes
+	url = https://github.com/xpple/cubiomes.git
+	# Pinned commit: 62007b8c6260290a3951f8ea9ce4a41e60dd1b54

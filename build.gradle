@@ -1,0 +1,294 @@
+import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
+import com.github.jengelman.gradle.plugins.shadow.transformers.Log4j2PluginsCacheFileTransformer
+import com.github.jengelman.gradle.plugins.shadow.transformers.PropertiesFileTransformer
+
+plugins {
+    id 'java'
+    id 'com.github.johnrengelman.shadow' version '8.1.1'
+}
+group 'com.sunnyslopes.slimefinder'
+version '1.0.0'
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
+
+repositories {
+    mavenCentral()
+    gradlePluginPortal()
+}
+
+dependencies {
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
+}
+
+test {
+    useJUnitPlatform()
+}
+
+shadowJar {
+    archiveBaseName.set('SlimeFinder')
+    archiveClassifier.set('')
+    mergeServiceFiles()
+}
+
+def cubiomesCommit = '62007b8c6260290a3951f8ea9ce4a41e60dd1b54'
+def generatedNativeResourcesDir = layout.buildDirectory.dir('generated/native-resources')
+
+tasks.register('buildMainJar', ShadowJar) {
+    group = 'build'
+    description = 'Creates a fat JAR for SlimeFinder'
+    archiveBaseName.set('SlimeFinder')
+    archiveClassifier.set('')
+    dependsOn classes, processResources
+    from sourceSets.main.output
+    configurations = [project.configurations.runtimeClasspath]
+    manifest {
+        attributes 'Main-Class': 'com.sunnyslopes.slimefinder.SlimeFinderFrame'
+        attributes 'Multi-Release': 'true'
+    }
+    mergeServiceFiles()
+    transform(Log4j2PluginsCacheFileTransformer)
+    transform(PropertiesFileTransformer) {
+        paths = ['META-INF/spring.handlers', 'META-INF/spring.schemas']
+        mergeStrategy = "append"
+    }
+    exclude 'module-info.class'
+}
+
+def linkCubiomesDir(File sourceDir) {
+    def link = file('cubiomes')
+    if (link.exists()) {
+        delete(link)
+    }
+    def src = sourceDir.absolutePath
+    def dst = link.absolutePath
+    if (System.getProperty('os.name').toLowerCase().contains('windows')) {
+        exec {
+            commandLine 'cmd', '/c', 'mklink', '/J', dst, src
+        }
+    } else {
+        exec {
+            workingDir layout.projectDirectory.asFile
+            commandLine 'ln', '-sfn', src, 'cubiomes'
+        }
+    }
+}
+
+tasks.register('initCubiomesSubmodule') {
+    group = 'build'
+    description = 'Ensures cubiomes sources are available at cubiomes/'
+    doLast {
+        def marker = file('cubiomes/finders.c')
+        if (marker.exists()) {
+            logger.lifecycle('cubiomes already present at cubiomes/')
+            return
+        }
+
+        def sourceDir = [file('cubiomes-master-xpple'), file('../cubiomes-master-xpple')]
+                .find { file("${it}/finders.c").exists() }
+        if (sourceDir != null) {
+            logger.lifecycle("Linking cubiomes/ -> ${sourceDir.name}")
+            linkCubiomesDir(sourceDir)
+            return
+        }
+
+        if (file('.git').exists()) {
+            exec {
+                workingDir layout.projectDirectory.asFile
+                commandLine 'git', 'submodule', 'update', '--init', '--recursive'
+            }
+            if (marker.exists()) {
+                return
+            }
+        }
+
+        logger.lifecycle('Cloning cubiomes from GitHub into cubiomes/...')
+        exec {
+            workingDir layout.projectDirectory.asFile
+            commandLine 'git', 'clone', 'https://github.com/xpple/cubiomes.git', 'cubiomes'
+        }
+        exec {
+            workingDir file('cubiomes')
+            commandLine 'git', 'checkout', cubiomesCommit
+        }
+        if (!marker.exists()) {
+            throw new GradleException(
+                    'Failed to obtain cubiomes. Add cubiomes-master-xpple/ to the project, init git submodule, or ensure git can clone from GitHub.')
+        }
+    }
+}
+
+tasks.register('buildDistribution') {
+    group = 'build'
+    description = 'buildNative + prepareNativeResources + buildMainJar'
+    dependsOn buildMainJar
+}
+
+tasks.register('buildAllJars') {
+    group = 'build'
+    description = 'Alias of buildDistribution'
+    dependsOn buildDistribution
+}
+
+tasks.named('build') {
+    dependsOn buildDistribution
+}
+
+def msys2Path() {
+    def candidates = ['C:\\msys64\\ucrt64\\bin', 'C:\\msys64\\mingw64\\bin']
+    return candidates.find { new File(it, 'gcc.exe').exists() } ?: ''
+}
+
+def resolveJavaHome() {
+    def javaHome = System.getenv('JAVA_HOME')
+    if (javaHome) {
+        return new File(javaHome).absolutePath.replace('\\', '/')
+    }
+    def candidates = [
+            'C:/Program Files/Java/jdk-17',
+            'C:/Program Files/Eclipse Adoptium/jdk-17',
+            'C:/Program Files/Microsoft/jdk-17'
+    ]
+    for (def path : candidates) {
+        if (new File(path, 'bin/javac.exe').exists()) {
+            return path
+        }
+    }
+    throw new GradleException('JAVA_HOME not set and no JDK 17 found.')
+}
+
+def nativeBuildPath() {
+    def msys = msys2Path()
+    def path = System.getenv('PATH') ?: ''
+    return msys ? (msys + File.pathSeparator + path) : path
+}
+
+ext.gradleNativeGenerator = 'Ninja'
+
+def clearStaleCmakeCacheIfNeeded() {
+    def cache = file('build/CMakeCache.txt')
+    if (!cache.exists()) return
+    def m = (cache.text =~ /CMAKE_GENERATOR:INTERNAL=(.+)/)
+    if (!m.find()) return
+    if (m.group(1).trim() != gradleNativeGenerator) {
+        delete(file('build/CMakeCache.txt'))
+        delete(file('build/CMakeFiles'))
+    }
+}
+
+tasks.register('checkNativeToolchain') {
+    group = 'verification'
+    description = 'Checks MSYS2 gcc/g++/ninja/cmake and JDK javac'
+    doLast {
+        def msys = msys2Path()
+        if (!msys) {
+            throw new GradleException('未找到 MSYS2 MinGW。请安装 MSYS2 并安装 toolchain/cmake/ninja。')
+        }
+        ['gcc', 'g++', 'ninja', 'cmake'].each { exe ->
+            if (!new File(msys, "${exe}.exe").exists()) {
+                throw new GradleException("未找到 ${msys}\\${exe}.exe")
+            }
+        }
+        def javaHome = resolveJavaHome()
+        if (!new File(javaHome.replace('/', File.separator), 'bin/javac.exe').exists()) {
+            throw new GradleException("javac not found under JAVA_HOME: ${javaHome}")
+        }
+    }
+}
+
+tasks.register('cmakeConfigure', Exec) {
+    dependsOn checkNativeToolchain, compileJava, initCubiomesSubmodule
+    group = 'build'
+    description = 'Configures CMake for slimeFinderLibJ'
+    workingDir layout.projectDirectory.asFile
+    environment 'PATH', nativeBuildPath()
+    doFirst { clearStaleCmakeCacheIfNeeded() }
+    def javaHome = resolveJavaHome()
+    commandLine 'cmake', '-B', 'build', '-G', gradleNativeGenerator,
+            '-DCMAKE_BUILD_TYPE=Release',
+            '-DCMAKE_C_COMPILER=gcc',
+            '-DCMAKE_CXX_COMPILER=g++',
+            "-DJAVA_HOME=${javaHome}",
+            '-Wno-dev'
+}
+
+tasks.register('buildNative', Exec) {
+    dependsOn cmakeConfigure
+    group = 'build'
+    description = 'Builds slimeFinderLibJ native library'
+    workingDir layout.projectDirectory.asFile
+    environment 'PATH', nativeBuildPath()
+    commandLine 'cmake', '--build', 'build', '--target', 'slimeFinderLibJ', '--verbose'
+}
+
+tasks.register('prepareNativeResources') {
+    dependsOn tasks.named('buildNative')
+    group = 'build'
+    description = 'Collects dll/so/dylib into jar resources'
+    inputs.files(
+            file('build/native/libslimeFinderLibJ.dll'),
+            file('build/native/slimeFinderLibJ.dll'))
+    outputs.dir(generatedNativeResourcesDir)
+    doLast {
+        def outDir = generatedNativeResourcesDir.get().asFile
+        delete(outDir)
+        outDir.mkdirs()
+
+        def buildNativeDir = file('build/native')
+        def nativeRoot = file('native')
+        def copied = false
+
+        if (buildNativeDir.exists() && !fileTree(dir: buildNativeDir, includes: ['**/*.dll', '**/*.so', '**/*.dylib']).isEmpty()) {
+            def mingwDll = new File(buildNativeDir, 'libslimeFinderLibJ.dll')
+            if (mingwDll.exists()) {
+                copy {
+                    from(mingwDll)
+                    into(new File(outDir, 'native/windows'))
+                    rename { 'slimeFinderLibJ.dll' }
+                }
+            } else {
+                copy {
+                    from(buildNativeDir)
+                    include('slimeFinderLibJ.dll', 'libslimeFinderLibJ.dll')
+                    into(new File(outDir, 'native/windows'))
+                }
+            }
+            copy {
+                from(buildNativeDir)
+                include('**/*.so')
+                into(new File(outDir, 'native/linux'))
+            }
+            copy {
+                from(buildNativeDir)
+                include('**/*.dylib')
+                into(new File(outDir, 'native/macos'))
+            }
+            copied = true
+        } else if (nativeRoot.exists()) {
+            copy { from(nativeRoot); include('**/*.dll'); into(new File(outDir, 'native/windows')) }
+            copy { from(nativeRoot); include('**/*.so'); into(new File(outDir, 'native/linux')) }
+            copy { from(nativeRoot); include('**/*.dylib'); into(new File(outDir, 'native/macos')) }
+            copied = true
+        }
+
+        if (!copied) {
+            logger.lifecycle('No native libraries found; run buildNative first.')
+        }
+    }
+}
+
+tasks.named('processResources') {
+    dependsOn tasks.named('prepareNativeResources')
+    from(generatedNativeResourcesDir)
+}
+
+['checkNativeToolchain', 'cmakeConfigure', 'buildNative', 'prepareNativeResources',
+ 'compileJava', 'processResources', 'buildMainJar', 'initCubiomesSubmodule'].each { taskName ->
+    tasks.named(taskName).configure { mustRunAfter tasks.named('clean') }
+}
