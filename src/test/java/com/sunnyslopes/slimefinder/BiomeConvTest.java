@@ -18,7 +18,11 @@ class BiomeConvTest {
             0, SlimeSearchRunner.DEFAULT_PRESERVE_RANGE, 1, 2);
         assertNotNull(r);
         assertTrue(r.length >= 4, "len=" + r.length);
-        System.out.println("raw=" + r[2] + " conv=" + r[3]);
-        assertTrue(r[3] > 0 && r[3] <= r[2], "raw=" + r[2] + " conv=" + r[3]);
+        for (int i = 0; i + 3 < r.length; i += 4) {
+            int raw = r[i + 2];
+            int conv = r[i + 3];
+            assertTrue(raw > 0, "raw at " + i);
+            assertTrue(conv > 0 && conv <= raw, "raw=" + raw + " conv=" + conv);
+        }
     }
 }

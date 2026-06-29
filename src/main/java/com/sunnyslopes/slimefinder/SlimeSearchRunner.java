@@ -27,7 +27,7 @@ public class SlimeSearchRunner {
     public static final double MAX_MIN_RATIO = 30.0;
     public static final int MIN_MIN_SLIME_AREA = (int) Math.round(SLIME_AREA_FULL * 0.10);
     public static final int DEFAULT_MIN_SLIME_AREA = (int) Math.round(SLIME_AREA_FULL * 0.20);
-    public static final int MAX_MIN_SLIME_AREA = (int) Math.round(SLIME_AREA_FULL * 0.40);
+    public static final int MAX_MIN_SLIME_AREA = (int) Math.round(SLIME_AREA_FULL * 0.30);
 
     public static final long MAX_SEARCH_AREA_BLOCKS = 60_000_001L * 60_000_001L;
     public static final float DEFAULT_PRESERVE_RANGE = 0.9f;

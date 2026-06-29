@@ -22,11 +22,10 @@ public class SlimeFinderFrame extends JFrame {
     private static final int DEFAULT_MAX_X = 65535;
     private static final int DEFAULT_MIN_Z = -65536;
     private static final int DEFAULT_MAX_Z = 65535;
-    // 默认值 - 世界边界（块坐标）
-    private static final int BOUNDARY_MIN_X = -30000000;
-    private static final int BOUNDARY_MAX_X = 30000000;
-    private static final int BOUNDARY_MIN_Z = -30000000;
-    private static final int BOUNDARY_MAX_Z = 30000000;
+    private static final int BOUNDARY_MIN_X = -30_000_000;
+    private static final int BOUNDARY_MAX_X = 30_000_000;
+    private static final int BOUNDARY_MIN_Z = -30_000_000;
+    private static final int BOUNDARY_MAX_Z = 30_000_000;
     // 默认值 - 从种子列表搜索（块坐标）
     private static final int DEFAULT_LIST_MIN_X = -4096;
     private static final int DEFAULT_LIST_MAX_X = 4095;
@@ -34,7 +33,7 @@ public class SlimeFinderFrame extends JFrame {
     private static final int DEFAULT_LIST_MAX_Z = 4095;
 
     private static final double SLIME_AREA_FULL = Math.PI * (128 * 128 - 24 * 24);
-    /** 史莱姆面积：默认 20%，上限 40%，下限 0 */
+    /** 史莱姆面积：默认 20%，上限 30%，下限 10% */
     private static final int MIN_SLIME_AREA_UI = SlimeSearchRunner.MIN_MIN_SLIME_AREA;
     private static final int DEFAULT_SLIME_AREA_UI = SlimeSearchRunner.DEFAULT_MIN_SLIME_AREA;
     private static final int MAX_SLIME_AREA_UI = SlimeSearchRunner.MAX_MIN_SLIME_AREA;
@@ -70,6 +69,7 @@ public class SlimeFinderFrame extends JFrame {
     private JButton searchPauseButton;
     private JButton searchStopButton;
     private JButton searchResetButton;
+    private JButton searchResetWorldButton;
     private JButton searchExportButton;
     private JButton searchSortButton;
     private JProgressBar searchProgressBar;
@@ -459,12 +459,14 @@ public class SlimeFinderFrame extends JFrame {
         searchPauseButton = new JButton(getString("button.pause"));
         searchStopButton = new JButton(getString("button.stop"));
         searchResetButton = new JButton(getString("button.reset"));
+        searchResetWorldButton = new JButton(getString("button.resetWorldBorder"));
         searchPauseButton.setEnabled(false);
         searchStopButton.setEnabled(false);
         buttonPanel.add(searchStartButton);
         buttonPanel.add(searchPauseButton);
         buttonPanel.add(searchStopButton);
         buttonPanel.add(searchResetButton);
+        buttonPanel.add(searchResetWorldButton);
 
         // Static credit text above buttons
         JPanel creditPanel = new JPanel(new FlowLayout(FlowLayout.CENTER));
@@ -544,6 +546,7 @@ public class SlimeFinderFrame extends JFrame {
         searchPauseButton.addActionListener(e -> toggleSearchPause());
         searchStopButton.addActionListener(e -> stopSearch());
         searchResetButton.addActionListener(e -> resetSearchToDefaults());
+        searchResetWorldButton.addActionListener(e -> resetSearchToWorldBounds());
 
         // 添加输入字段监听，检测参数变化
         addSearchParameterListeners();
@@ -664,6 +667,7 @@ public class SlimeFinderFrame extends JFrame {
                 searchPauseButton.setText(getString("button.pause"));
                 searchStopButton.setEnabled(false);
                 searchResetButton.setEnabled(true);
+                if (searchResetWorldButton != null) searchResetWorldButton.setEnabled(true);
                 searchSeedField.setEnabled(true);
                 searchThreadCountField.setEnabled(true);
                 searchMinSlimeAreaField.setEnabled(true);
@@ -1019,7 +1023,7 @@ public class SlimeFinderFrame extends JFrame {
             long heightSteps1 = (searchMaxZ - baseZ1) / SlimeSearchRunner.PHASE1_GRID_STEP + 1;
             long totalGrid = widthSteps1 * heightSteps1;
             if (totalGrid > SlimeSearchRunner.MAX_SEARCH_AREA_BLOCKS) {
-                JOptionPane.showMessageDialog(this, getString("error.gridTooLargeForMemory"), getString("prompt.error"), JOptionPane.ERROR_MESSAGE);
+                JOptionPane.showMessageDialog(this, getString("error.searchAreaTooLarge"), getString("prompt.error"), JOptionPane.ERROR_MESSAGE);
                 return;
             }
 
@@ -1054,6 +1058,7 @@ public class SlimeFinderFrame extends JFrame {
             searchPauseButton.setText(getString("button.pause"));
             searchStopButton.setEnabled(true);
             searchResetButton.setEnabled(false);
+            if (searchResetWorldButton != null) searchResetWorldButton.setEnabled(false);
             searchSeedField.setEnabled(false);
             searchThreadCountField.setEnabled(false);
             searchMinSlimeAreaField.setEnabled(false);
@@ -1122,6 +1127,13 @@ public class SlimeFinderFrame extends JFrame {
         maxXField.setText(String.valueOf(DEFAULT_MAX_X));
         minZField.setText(String.valueOf(DEFAULT_MIN_Z));
         maxZField.setText(String.valueOf(DEFAULT_MAX_Z));
+    }
+
+    private void resetSearchToWorldBounds() {
+        minXField.setText(String.valueOf(BOUNDARY_MIN_X));
+        maxXField.setText(String.valueOf(BOUNDARY_MAX_X));
+        minZField.setText(String.valueOf(BOUNDARY_MIN_Z));
+        maxZField.setText(String.valueOf(BOUNDARY_MAX_Z));
     }
 
     // 创建从种子列表搜索面板
@@ -1477,6 +1489,9 @@ public class SlimeFinderFrame extends JFrame {
         searchPauseButton.setText(getString("button.pause"));
         searchStopButton.setEnabled(false);
         searchResetButton.setEnabled(true);
+        if (searchResetWorldButton != null) {
+            searchResetWorldButton.setEnabled(true);
+        }
         searchSeedField.setEnabled(true);
         searchThreadCountField.setEnabled(true);
         searchMinSlimeAreaField.setEnabled(true);
@@ -1759,6 +1774,9 @@ public class SlimeFinderFrame extends JFrame {
         }
         if (searchResetButton != null) {
             searchResetButton.setText(getString("button.reset"));
+        }
+        if (searchResetWorldButton != null) {
+            searchResetWorldButton.setText(getString("button.resetWorldBorder"));
         }
         if (searchExportButton != null) {
             searchExportButton.setText(getString("button.export"));
@@ -2231,7 +2249,7 @@ public class SlimeFinderFrame extends JFrame {
             long listHeightSteps1 = (listSearchMaxZ - listBaseZ1) / SlimeSearchRunner.PHASE1_GRID_STEP + 1;
             long listTotalGrid = listWidthSteps1 * listHeightSteps1;
             if (listTotalGrid > SlimeSearchRunner.MAX_SEARCH_AREA_BLOCKS) {
-                JOptionPane.showMessageDialog(this, getString("error.gridTooLargeForMemory"), getString("prompt.error"), JOptionPane.ERROR_MESSAGE);
+                JOptionPane.showMessageDialog(this, getString("error.searchAreaTooLarge"), getString("prompt.error"), JOptionPane.ERROR_MESSAGE);
                 return;
             }
 
